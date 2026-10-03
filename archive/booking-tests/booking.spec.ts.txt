@@ -1,0 +1,34 @@
+import {test,expect} from '@playwright/test';
+import 'dotenv/config';
+import {PrismaClient} from '../../generated/prisma/client';
+import {PrismaPg} from '@prisma/adapter-pg';
+import bcrypt from 'bcrypt';
+const db=new PrismaClient({adapter:new PrismaPg({connectionString:process.env.DATABASE_URL})});
+const stamp=Date.now();const email=`booking-owner-${stamp}@example.com`;const slug=`booking-test-${stamp}`;let businessId='';let userId='';let serviceId='';
+const date=new Date(Date.now()+3*86400000).toISOString().slice(0,10);
+test.beforeAll(async()=>{const user=await db.user.create({data:{name:'Booking Owner',email,passwordHash:await bcrypt.hash('Strong test password 2026',12)}});userId=user.id;const b=await db.business.create({data:{ownerId:user.id,name:'Booking Studio',slug,category:'Studio',email,timezone:'Europe/Berlin',minimumNoticeMinutes:0}});businessId=b.id;});
+test.afterAll(async()=>{if(businessId){await db.booking.deleteMany({where:{businessId}});await db.customer.deleteMany({where:{businessId}});await db.service.deleteMany({where:{businessId}});await db.business.delete({where:{id:businessId}});}if(userId)await db.user.delete({where:{id:userId}});await db.$disconnect();});
+test('owner setup, concurrent booking, customer rescheduling/cancellation and tenant isolation',async({page,browser})=>{
+ await page.goto('/login');await page.getByLabel('Email address').fill(email);await page.getByLabel('Password',{exact:true}).fill('Strong test password 2026');await page.getByRole('button',{name:'Sign in'}).click();await expect(page).toHaveURL(/dashboard$/);
+ await page.goto(`/dashboard/${businessId}?tab=services`);await page.getByLabel('Service name').fill('Consultation');await page.getByLabel('Price (EUR)').fill('45');await page.getByRole('button',{name:'Add service',exact:true}).click();await expect(page.getByRole('heading',{name:'Consultation'})).toBeVisible();serviceId=(await db.service.findFirstOrThrow({where:{businessId}})).id;
+ await page.goto(`/dashboard/${businessId}?tab=hours`);await page.getByLabel('Day',{exact:true}).selectOption(String(new Date(`${date}T12:00:00Z`).getUTCDay()));await page.getByRole('button',{name:'Add opening period'}).click();await expect(page.getByRole('status')).toHaveText('Saved.');
+ const c1=await browser.newContext();const c2=await browser.newContext();const p1=await c1.newPage();const p2=await c2.newPage();
+ const url=`/book/${slug}?date=${date}&service=${serviceId}`;
+ for(const [i,p] of [p1,p2].entries()){await p.goto(url);await p.getByLabel('Your name').fill(`Customer ${i}`);await p.getByLabel('Email address').fill(`customer-${stamp}-${i}@example.com`);await p.getByLabel('Phone',{exact:true}).fill('+4912345678');}
+ await Promise.all([p1.getByRole('button',{name:'Book appointment',exact:true}).click(),p2.getByRole('button',{name:'Book appointment',exact:true}).click()]);
+ await expect.poll(()=>db.booking.count({where:{businessId}})).toBe(1);
+ expect(await db.emailJob.count({where:{booking:{businessId}}})).toBe(3);
+ await expect.poll(async()=>Number(await p1.getByRole('link',{name:'View and manage your appointment'}).count())+Number(await p2.getByRole('link',{name:'View and manage your appointment'}).count())).toBe(1);
+ const winner=await p1.getByRole('link',{name:'View and manage your appointment'}).count()?p1:p2;const loser=winner===p1?p2:p1;await expect(loser.getByRole('alert').filter({hasText:'no longer available'})).toContainText('no longer available');
+ await winner.getByRole('link',{name:'View and manage your appointment'}).click();await expect(winner.getByText('CONFIRMED',{exact:true})).toBeVisible();
+ const original=(await db.booking.findFirstOrThrow({where:{businessId}})).startAt;
+ await winner.getByLabel('New time').selectOption({index:2});await winner.getByRole('button',{name:'Reschedule appointment',exact:true}).click();await expect(winner.getByRole('status')).toHaveText('Appointment updated.');expect(+(await db.booking.findFirstOrThrow({where:{businessId}})).startAt).not.toBe(+original);
+ await page.goto(`/dashboard/${businessId}?tab=customers`);await expect(page.getByRole('heading',{name:/Customer [01]/})).toBeVisible();
+ await winner.getByText('Cancel appointment',{exact:true}).click();await winner.getByRole('button',{name:'Confirm cancellation'}).click();await expect(winner.getByText('CANCELLED',{exact:true})).toBeVisible();
+ expect(await db.emailJob.count({where:{booking:{businessId},key:{startsWith:'reminder:'},sentAt:null}})).toBe(0);
+ await p2.goto(`/dashboard/${businessId}`);await expect(p2).toHaveURL(/login$/);
+ const outsider=await db.user.create({data:{name:'Other Owner',email:`other-${stamp}@example.com`,passwordHash:await bcrypt.hash('Strong test password 2026',12)}});
+ try{await p2.getByLabel('Email address').fill(outsider.email);await p2.getByLabel('Password',{exact:true}).fill('Strong test password 2026');await p2.getByRole('button',{name:'Sign in'}).click();await expect(p2).toHaveURL(/onboarding$/);await p2.goto(`/dashboard/${businessId}`);await expect(p2.getByRole('heading',{name:'Booking Studio'})).toHaveCount(0);}finally{await db.user.delete({where:{id:outsider.id}});}
+ await page.setViewportSize({width:390,height:844});await page.goto(`/dashboard/${businessId}`);expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.screenshot({path:'/private/tmp/bookme-booking-dashboard.png',fullPage:true});
+ await c1.close();await c2.close();
+});

@@ -1,0 +1,5 @@
+import { z } from "zod";
+export const email = z.string().trim().toLowerCase().email().max(254);
+export const loginSchema = z.object({email,password:z.string().min(1).max(72)});
+export const registerSchema = z.object({name:z.string().trim().min(2).max(100),email,password:z.string().min(12,"Use at least 12 characters.").refine(v=>Buffer.byteLength(v,"utf8")<=72,"Password must be at most 72 bytes."),confirmPassword:z.string()}).refine(v=>v.password===v.confirmPassword,{message:"Passwords do not match.",path:["confirmPassword"]});
+export const businessSchema = z.object({name:z.string().trim().min(2).max(100),slug:z.string().trim().toLowerCase().min(3).max(60).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/,"Use lowercase letters, numbers and single hyphens."),description:z.string().trim().max(1000),category:z.string().trim().min(2).max(80),email,phone:z.string().trim().max(30),address:z.string().trim().max(200),city:z.string().trim().max(100),country:z.string().trim().length(2),timezone:z.string().refine(v=>{try{new Intl.DateTimeFormat("en",{timeZone:v});return true;}catch{return false;}},"Choose a valid timezone."),currency:z.enum(["EUR","GBP","USD","NGN","CAD","AUD"])});

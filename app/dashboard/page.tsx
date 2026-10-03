@@ -1,0 +1,7 @@
+import Link from 'next/link';
+import {redirect} from 'next/navigation';
+import {requireUser} from '@/services/auth';
+import {accessibleShops} from '@/services/shops';
+import {logout} from '@/actions/auth';
+import {Brand} from '@/components/brand';
+export default async function Page({searchParams}:{searchParams:Promise<{view?:string}>}){const {view}=await searchParams;const user=await requireUser();const shops=await accessibleShops();if(shops.length===1&&view!=='all')redirect(`/dashboard/${shops[0].id}`);return <><header className="topbar"><Brand href="/dashboard"/><form action={logout}><button className="logout">Sign out</button></form></header><main id="main" className="onboarding"><span className="eyebrow">YOUR WORKSPACE</span><h1>Hello, {user.name.split(' ')[0]}.</h1>{shops.length?<div className="business-grid">{shops.map(s=><article className="panel" key={s.id}><span className="pill">{s.ownerId===user.id?'Owner':'Worker'}</span><h2>{s.name}</h2><Link href={`/dashboard/${s.id}`} className="button">Open sales book →</Link></article>)}</div>:<section className="panel"><h2>Start your sales book</h2><p>Create your business to add items and invite your worker. If you’re a worker, use the invitation link from your employer.</p><Link href="/onboarding" className="button">Create sales book</Link></section>}{shops.length>0&&<Link className="text-link" href="/onboarding">Add another business</Link>}</main></>;}

@@ -1,0 +1,2 @@
+import { defineConfig } from '@playwright/test';
+export default defineConfig({testDir:'./tests/browser',timeout:90000,expect:{timeout:10000},use:{baseURL:process.env.BASE_URL??'http://localhost:3000',headless:true,channel:'chrome',trace:'retain-on-failure'},webServer:process.env.BASE_URL?undefined:{command:'npm run dev -- --port 3000',url:'http://localhost:3000',reuseExistingServer:!process.env.CI,timeout:120000},workers:1});

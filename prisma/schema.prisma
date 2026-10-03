@@ -1,0 +1,286 @@
+generator client {
+  provider = "prisma-client"
+  output = "../generated/prisma"
+}
+datasource db {
+  provider = "postgresql"
+}
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+model User {
+  shops Shop[] @relation("ShopOwner")
+  memberships ShopMember[] @relation("ShopWorker")
+  sales Sale[] @relation("Seller")
+  handovers Handover[] @relation("HandoverWorker")
+  id String @id @default(cuid())
+  name String
+  email String @unique
+  passwordHash String
+  sessions Session[]
+  businesses Business[]
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+}
+model Session {
+  id String @id @default(cuid())
+  tokenHash String @unique
+  userId String
+  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+  expiresAt DateTime @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  @@index([userId])
+  @@index([expiresAt])
+}
+model Business {
+  id String @id @default(cuid())
+  ownerId String
+  owner User @relation(fields:[ownerId],references:[id],onDelete:Restrict)
+  name String
+  slug String @unique
+  description String @default("")
+  logoUrl String?
+  category String
+  email String
+  phone String @default("")
+  address String @default("")
+  city String @default("")
+  country String @default("DE")
+  timezone String @default("Europe/Berlin")
+  currency String @default("EUR") @db.VarChar(3)
+  minimumNoticeMinutes Int @default(120)
+  maximumBookingDays Int @default(90)
+  slotIntervalMinutes Int @default(15)
+  automaticConfirmation Boolean @default(true)
+  cancellationPolicy String @default("")
+  dateFormat String @default("dd/MM/yyyy")
+  timeFormat String @default("24h")
+  services Service[]
+  availability Availability[]
+  blockedTimes BlockedTime[]
+  customers Customer[]
+  bookings Booking[]
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  @@index([ownerId])
+}
+model Service {
+  id String @id @default(cuid())
+  businessId String
+  business Business @relation(fields:[businessId],references:[id],onDelete:Restrict)
+  name String
+  description String @default("")
+  price Decimal @db.Decimal(12,2)
+  currency String @db.VarChar(3)
+  durationMinutes Int
+  bufferMinutes Int @default(0)
+  active Boolean @default(true)
+  bookings Booking[]
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  @@unique([id,businessId])
+  @@index([businessId,active])
+}
+model Availability {
+  id String @id @default(cuid())
+  businessId String
+  business Business @relation(fields:[businessId],references:[id],onDelete:Cascade)
+  weekday Int
+  startMinute Int
+  endMinute Int
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  @@unique([businessId,weekday,startMinute])
+}
+model BlockedTime {
+  id String @id @default(cuid())
+  businessId String
+  business Business @relation(fields:[businessId],references:[id],onDelete:Cascade)
+  startAt DateTime @db.Timestamptz(3)
+  endAt DateTime @db.Timestamptz(3)
+  reason String?
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  @@index([businessId,startAt,endAt])
+}
+model Customer {
+  id String @id @default(cuid())
+  businessId String
+  business Business @relation(fields:[businessId],references:[id],onDelete:Restrict)
+  name String
+  email String
+  phone String
+  bookings Booking[]
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  @@unique([businessId,email])
+  @@unique([id,businessId])
+}
+model Booking {
+  emailJobs EmailJob[]
+  id String @id @default(cuid())
+  reference String @unique @default(cuid())
+  businessId String
+  business Business @relation(fields:[businessId],references:[id],onDelete:Restrict)
+  serviceId String
+  service Service @relation(fields:[serviceId,businessId],references:[id,businessId],onDelete:Restrict)
+  customerId String
+  customer Customer @relation(fields:[customerId,businessId],references:[id,businessId],onDelete:Restrict)
+  customerName String
+  customerEmail String
+  customerPhone String
+  serviceName String
+  startAt DateTime @db.Timestamptz(3)
+  endAt DateTime @db.Timestamptz(3)
+  occupiedUntil DateTime @db.Timestamptz(3)
+  durationMinutes Int
+  bufferMinutes Int
+  price Decimal @db.Decimal(12,2)
+  currency String @db.VarChar(3)
+  status BookingStatus @default(CONFIRMED)
+  customerNotes String @default("")
+  internalNotes String @default("")
+  managementTokenHash String? @unique
+  managementTokenExpiresAt DateTime? @db.Timestamptz(3)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  @@index([businessId,startAt])
+  @@index([businessId,status,startAt])
+  @@index([customerId,businessId])
+  @@index([serviceId,businessId])
+}
+model RateLimit {
+  key String @id
+  count Int
+  resetAt DateTime @db.Timestamptz(3)
+  @@index([resetAt])
+}
+model EmailJob {
+ id String @id @default(cuid())
+ key String @unique
+ bookingId String
+ booking Booking @relation(fields:[bookingId],references:[id],onDelete:Cascade)
+ recipient String
+ subject String
+ body String
+ dueAt DateTime @db.Timestamptz(3)
+ sentAt DateTime? @db.Timestamptz(3)
+ attempts Int @default(0)
+ lastError String?
+ createdAt DateTime @default(now()) @db.Timestamptz(3)
+ @@index([sentAt,dueAt])
+}
+
+model Shop {
+ id String @id @default(cuid())
+ name String
+ ownerId String
+ currency String @default("GMD") @db.VarChar(3)
+ owner User @relation("ShopOwner",fields:[ownerId],references:[id],onDelete:Restrict)
+ members ShopMember[]
+ invitations ShopInvitation[]
+ items Item[]
+ sales Sale[]
+ handovers Handover[]
+ stockEntries StockEntry[]
+ createdAt DateTime @default(now()) @db.Timestamptz(3)
+ @@index([ownerId])
+}
+model ShopMember {
+ id String @id @default(cuid())
+ shopId String
+ shop Shop @relation(fields:[shopId],references:[id],onDelete:Restrict)
+ userId String
+ user User @relation("ShopWorker",fields:[userId],references:[id],onDelete:Restrict)
+ active Boolean @default(true)
+ createdAt DateTime @default(now()) @db.Timestamptz(3)
+ @@unique([shopId,userId])
+}
+model ShopInvitation {
+ id String @id @default(cuid())
+ shopId String
+ shop Shop @relation(fields:[shopId],references:[id],onDelete:Cascade)
+ email String
+ tokenHash String @unique
+ expiresAt DateTime @db.Timestamptz(3)
+ acceptedAt DateTime? @db.Timestamptz(3)
+ createdAt DateTime @default(now()) @db.Timestamptz(3)
+ @@index([shopId])
+}
+model Item {
+ id String @id @default(cuid())
+ shopId String
+ shop Shop @relation(fields:[shopId],references:[id],onDelete:Restrict)
+ name String
+ priceMinor Int
+ stock Int @default(0)
+ active Boolean @default(true)
+ sales Sale[]
+ stockEntries StockEntry[]
+ createdAt DateTime @default(now()) @db.Timestamptz(3)
+ updatedAt DateTime @updatedAt @db.Timestamptz(3)
+ @@unique([id,shopId])
+ @@index([shopId,active])
+}
+model Sale {
+ collections SaleCollection[]
+ id String @id @default(cuid())
+ requestKey String @unique
+ shopId String
+ shop Shop @relation(fields:[shopId],references:[id],onDelete:Restrict)
+ itemId String
+ item Item @relation(fields:[itemId,shopId],references:[id,shopId],onDelete:Restrict)
+ sellerId String
+ seller User @relation("Seller",fields:[sellerId],references:[id],onDelete:Restrict)
+ itemName String
+ quantity Int
+ unitPriceMinor Int
+ totalMinor Int
+ paidMinor Int
+ customerName String @default("")
+ note String @default("")
+ soldAt DateTime @default(now()) @db.Timestamptz(3)
+ voidedAt DateTime? @db.Timestamptz(3)
+ voidReason String?
+ createdAt DateTime @default(now()) @db.Timestamptz(3)
+ @@index([shopId,soldAt])
+ @@index([shopId,sellerId])
+}
+model StockEntry {
+ id String @id @default(cuid())
+ shopId String
+ shop Shop @relation(fields:[shopId],references:[id],onDelete:Restrict)
+ itemId String
+ item Item @relation(fields:[itemId,shopId],references:[id,shopId],onDelete:Restrict)
+ quantity Int
+ note String
+ createdAt DateTime @default(now()) @db.Timestamptz(3)
+ @@index([shopId,createdAt])
+}
+model Handover {
+ voidedAt DateTime? @db.Timestamptz(3)
+ voidReason String?
+ id String @id @default(cuid())
+ requestKey String @unique
+ shopId String
+ shop Shop @relation(fields:[shopId],references:[id],onDelete:Restrict)
+ workerId String
+ worker User @relation("HandoverWorker",fields:[workerId],references:[id],onDelete:Restrict)
+ amountMinor Int
+ note String @default("")
+ createdAt DateTime @default(now()) @db.Timestamptz(3)
+ @@index([shopId,workerId])
+}
+
+model SaleCollection {
+ id String @id @default(cuid())
+ requestKey String @unique
+ saleId String
+ sale Sale @relation(fields:[saleId],references:[id],onDelete:Restrict)
+ amountMinor Int
+ createdAt DateTime @default(now()) @db.Timestamptz(3)
+}
