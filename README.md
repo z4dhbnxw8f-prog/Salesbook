@@ -46,3 +46,5 @@ Browser tests create and remove their own fixtures. Use a development database. 
 Deploy as a standard Next.js app with PostgreSQL. Set a private production DATABASE_URL and run `npm run db:migrate` before release. Enable database backups and HTTPS. Production session cookies require HTTPS. Apply platform request limits for public registration/login. No deployment has been created by this change.
 
 Invitations are shared manually; no email provider or scheduler is needed. CSV downloads respect the signed-in account’s permissions. The earlier appointment UI is disabled; old database tables remain intact to preserve existing data.
+
+Products can have an employee percentage (0–100%, up to two decimals). New worker sales snapshot the rate and commission on the full sale total, rounded to the nearest currency hundredth. Owner sales earn no employee commission. Editing a product does not change past sales; pre-existing sales remain at zero commission. Voided sales are excluded from commission totals. Commission appears in sales history and CSV exports and does not deduct from cash handovers or record a commission payout.

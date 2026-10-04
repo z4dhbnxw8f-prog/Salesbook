@@ -217,6 +217,7 @@ model Item {
  shop Shop @relation(fields:[shopId],references:[id],onDelete:Restrict)
  name String
  priceMinor Int
+ employeePercentageBps Int @default(0)
  stock Int @default(0)
  active Boolean @default(true)
  sales Sale[]
@@ -239,6 +240,8 @@ model Sale {
  itemName String
  quantity Int
  unitPriceMinor Int
+ employeePercentageBps Int @default(0)
+ commissionMinor Int @default(0)
  totalMinor Int
  paidMinor Int
  customerName String @default("")

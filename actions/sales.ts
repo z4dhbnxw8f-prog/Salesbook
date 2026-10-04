@@ -6,13 +6,14 @@ import {revalidatePath} from 'next/cache';
 import {db} from '@/lib/db';
 import {requireUser} from '@/services/auth';
 import {requireShop} from '@/services/shops';
-import {parseMoney,saleTotal} from '@/lib/money';
+import {parseMoney,saleTotal,parsePercentage,commissionAmount} from '@/lib/money';
 import {currencyCodes} from '@/lib/currency';
 import type {ActionState} from '@/components/action-form';
 import type {Prisma} from '@/generated/prisma/client';
 const hash=(v:string)=>createHash('sha256').update(v).digest('hex');
 class InputError extends Error {}
 const amount=z.string().transform((v,ctx)=>{try{return parseMoney(v);}catch{ctx.addIssue({code:'custom',message:'Enter a valid amount with up to two decimal places.'});return z.NEVER;}});
+const percentage=z.string().optional().transform((v,ctx)=>{try{return parsePercentage(v??'');}catch(e){ctx.addIssue({code:'custom',message:(e as Error).message});return z.NEVER;}});
 const text=(min=0,max=200)=>z.string().trim().min(min).max(max);
 const quantity=z.coerce.number().int().min(1).max(100000);
 const key=z.uuid();
@@ -34,9 +35,9 @@ export async function saveSaleData(_:ActionState,form:FormData):Promise<ActionSt
   await tx.$queryRaw`SELECT id FROM "Shop" WHERE id=${shopId} FOR UPDATE`;
   if(!isOwner&&!await tx.shopMember.findFirst({where:{shopId,userId:user.id,active:true}}))throw new InputError('Your access has been removed.');
   if(op==='item'){
-   const v=z.object({name:text(2,100),price:amount}).parse(data);const itemId=String(form.get('itemId')??'');
-   if(itemId){const found=await tx.item.findFirst({where:{id:itemId,shopId}});if(!found)throw new InputError('Item not found.');await tx.item.update({where:{id:itemId},data:{name:v.name,priceMinor:v.price}});}
-   else{const stock=z.coerce.number().int().min(0).max(1000000).parse(form.get('stock'));const item=await tx.item.create({data:{shopId,name:v.name,priceMinor:v.price,stock}});if(stock)await tx.stockEntry.create({data:{shopId,itemId:item.id,quantity:stock,note:'Opening stock'}});}
+   const v=z.object({name:text(2,100),price:amount,employeePercentage:percentage}).parse(data);const itemId=String(form.get('itemId')??'');
+   if(itemId){const found=await tx.item.findFirst({where:{id:itemId,shopId}});if(!found)throw new InputError('Item not found.');await tx.item.update({where:{id:itemId},data:{name:v.name,priceMinor:v.price,employeePercentageBps:v.employeePercentage}});}
+   else{const stock=z.coerce.number().int().min(0).max(1000000).parse(form.get('stock'));const item=await tx.item.create({data:{shopId,name:v.name,priceMinor:v.price,employeePercentageBps:v.employeePercentage,stock}});if(stock)await tx.stockEntry.create({data:{shopId,itemId:item.id,quantity:stock,note:'Opening stock'}});}
   }else if(op==='restock'){
    const v=z.object({itemId:text(1),quantity:z.coerce.number().int().min(-1000000).max(1000000).refine(v=>v!==0,'Enter a non-zero quantity.'),note:text(2)}).parse(data);
    const item=await tx.item.findFirst({where:{id:v.itemId,shopId}});if(!item)throw new InputError('Item not found.');if(item.stock+v.quantity<0||item.stock+v.quantity>1000000)throw new InputError('Stock must stay between 0 and 1,000,000.');
@@ -52,7 +53,8 @@ export async function saveSaleData(_:ActionState,form:FormData):Promise<ActionSt
    let total:number;try{total=saleTotal(item.priceMinor,v.quantity);}catch{throw new InputError('This sale is too large. Split it into smaller sales.');}
    if(v.paid>total)throw new InputError('Amount received cannot exceed the sale total.');
    if(v.paid<total&&!v.customerName)throw new InputError('Enter a customer name for an unpaid or partly paid sale.');
-   const sale=await tx.sale.create({data:{shopId,itemId:item.id,sellerId:user.id,itemName:item.name,quantity:v.quantity,unitPriceMinor:item.priceMinor,totalMinor:total,paidMinor:v.paid,customerName:v.customerName,note:v.note,requestKey:v.requestKey}});
+   const employeePercentageBps=isOwner?0:item.employeePercentageBps;
+   const sale=await tx.sale.create({data:{shopId,itemId:item.id,sellerId:user.id,itemName:item.name,quantity:v.quantity,unitPriceMinor:item.priceMinor,totalMinor:total,employeePercentageBps,commissionMinor:commissionAmount(total,employeePercentageBps),paidMinor:v.paid,customerName:v.customerName,note:v.note,requestKey:v.requestKey}});
    if(v.paid)await tx.saleCollection.create({data:{saleId:sale.id,amountMinor:v.paid,requestKey:v.requestKey}});
    await tx.item.update({where:{id:item.id},data:{stock:{decrement:v.quantity}}});
   }else if(op==='collect'){
